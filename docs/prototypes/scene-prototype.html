@@ -1,0 +1,823 @@
+<title>Serenium Core Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --void:#07070a; --panel:#101015; --raise:#17171e; --line:#22222c; --line-2:#31313e;
+  --ink:#eceaf2; --ink-2:#c2bece; --muted:#8d88a0; --dim:#7c7690;
+  --accent:#ff6a2b; --accent-lo:#3a1a0c;
+  --session:#ff8a4c; --artifact:#3fd6d0; --skill:#a487f5; --rubric:#ffc44d;
+  --routine:#4ecb92; --decision:#f0709b; --doc:#5a6a8c;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  --sans:"Archivo",ui-sans-serif,system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html{color-scheme:dark}
+body{
+  margin:0;height:100vh;overflow:hidden;background:var(--void);color:var(--ink);
+  font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--accent);color:#150a04}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+
+/* grid-dot ground — CSS, so panning is free */
+.ground{
+  position:fixed;inset:0;
+  background-image:radial-gradient(circle,#20202b 1px,transparent 1px);
+  background-size:26px 26px;
+  mask-image:radial-gradient(ellipse 75% 70% at 50% 50%,#000 35%,transparent 100%);
+}
+#sky{position:fixed;inset:0;width:100%;height:100%;display:block}
+
+.hud{position:fixed;inset:0;pointer-events:none}
+.hud>*{pointer-events:auto}
+
+/* masthead */
+.mast{position:fixed;top:26px;left:50%;transform:translateX(-50%);text-align:center;z-index:6}
+.mast h1{margin:0;font-size:1.16rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase}
+.mast h1 em{font-style:normal;color:var(--accent)}
+.mast p{margin:5px 0 0;font-family:var(--mono);font-size:.63rem;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--muted)}
+
+/* ring */
+.ring{position:fixed;inset:0;z-index:4}
+.node{
+  position:absolute;transform:translate(-50%,-50%);
+  width:var(--sz,15px);height:var(--sz,15px);
+  border:1px solid var(--line-2);background:var(--panel);
+  transition:border-color .15s,background .15s,transform .2s;
+}
+.node.s{border-radius:50%}
+.node.a{border-radius:2px}
+.node:hover,.node.hit{border-color:var(--accent);background:var(--accent-lo);z-index:9}
+.node:hover{transform:translate(-50%,-50%) scale(1.5)}
+.node .lbl{
+  position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);
+  white-space:nowrap;font-family:var(--mono);font-size:.63rem;color:var(--ink);
+  background:var(--panel);border:1px solid var(--line-2);padding:3px 8px;border-radius:3px;
+  opacity:0;transition:opacity .14s;pointer-events:none;
+}
+.node .lbl b{color:var(--accent);font-weight:400;margin-right:6px}
+.node:hover .lbl{opacity:1}
+
+/* widgets */
+.wg{
+  position:fixed;z-index:5;background:var(--panel);border:1px solid var(--line);
+  border-radius:8px;padding:13px 15px;width:212px;
+}
+.wg h3{margin:0 0 10px;font-family:var(--mono);font-size:.58rem;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--muted);font-weight:400}
+.wg .big{font-size:1.7rem;font-weight:600;letter-spacing:-.03em;line-height:1;
+  font-variant-numeric:tabular-nums;color:var(--accent)}
+.wg .u{font-family:var(--mono);font-size:.6rem;color:var(--dim);letter-spacing:.08em;
+  text-transform:uppercase;margin-top:5px;display:block}
+.wg .row{display:flex;justify-content:space-between;align-items:center;
+  padding:5px 0;font-size:.74rem;border-bottom:1px solid var(--line)}
+.wg .row:last-child{border-bottom:0}
+.wg .row span{color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wg .row b{font-family:var(--mono);font-size:.6rem;font-weight:400;color:var(--dim);flex:0 0 auto;margin-left:8px}
+.wg .row b.on{color:var(--routine)}
+.wg .row b.wait{color:var(--rubric)}
+
+/* controls */
+.ctl{position:fixed;left:24px;bottom:24px;z-index:7;display:flex;flex-direction:column;gap:7px}
+.ctl button{
+  font-family:var(--mono);font-size:.63rem;letter-spacing:.08em;text-transform:uppercase;
+  background:var(--panel);border:1px solid var(--line-2);border-radius:4px;
+  padding:8px 12px;color:var(--ink-2);text-align:left;transition:all .14s;
+}
+.ctl button:hover{border-color:var(--accent);color:var(--accent)}
+.ctl button.on{background:var(--accent-lo);border-color:var(--accent);color:var(--accent)}
+
+.legend{position:fixed;right:24px;bottom:24px;z-index:7;display:flex;flex-direction:column;gap:5px}
+.legend div{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:.6rem;
+  letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.legend i{width:7px;height:7px;border-radius:50%;display:block}
+.legend b{color:var(--ink-2);font-weight:400;margin-left:auto;font-variant-numeric:tabular-nums}
+
+/* search */
+.search{
+  position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.96);z-index:12;
+  width:min(430px,86vw);opacity:0;pointer-events:none;transition:opacity .16s,transform .16s;
+}
+.search[data-open="1"]{opacity:1;transform:translate(-50%,-50%) scale(1);pointer-events:auto}
+.search input{
+  width:100%;background:var(--panel);border:1px solid var(--accent);border-radius:5px;
+  padding:13px 15px;font-family:var(--mono);font-size:.82rem;color:var(--ink);
+  caret-color:var(--accent);
+}
+.search input:focus{outline:none}
+.search .res{margin-top:7px;max-height:210px;overflow-y:auto;
+  background:var(--panel);border:1px solid var(--line);border-radius:5px}
+.search .res button{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  padding:8px 13px;font-size:.76rem;border-bottom:1px solid var(--line);
+}
+.search .res button:last-child{border-bottom:0}
+.search .res button:hover,.search .res button.sel{background:var(--raise)}
+.search .res i{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.search .res span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2)}
+.search .res em{font-style:normal;font-family:var(--mono);font-size:.58rem;
+  color:var(--dim);letter-spacing:.07em;text-transform:uppercase}
+.search .hint{margin-top:6px;font-family:var(--mono);font-size:.58rem;color:var(--dim);
+  letter-spacing:.08em;text-transform:uppercase;text-align:center}
+
+/* extracted card — what search pulls out of the sphere */
+.card{
+  position:fixed;z-index:11;transform:translate(-50%,-50%);
+  background:var(--panel);border:1px solid var(--accent);border-radius:6px;
+  padding:11px 14px;min-width:190px;max-width:290px;opacity:0;
+  transition:opacity .3s;pointer-events:none;
+}
+.card[data-on="1"]{opacity:1}
+.card em{font-style:normal;font-family:var(--mono);font-size:.56rem;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--accent);display:block;margin-bottom:5px}
+.card b{font-weight:500;font-size:.85rem;display:block;line-height:1.35}
+.card span{font-family:var(--mono);font-size:.6rem;color:var(--dim);display:block;margin-top:5px}
+
+/* cluster labels inside the graph */
+.clabel{
+  position:fixed;z-index:6;transform:translate(-50%,-50%);text-align:center;
+  pointer-events:auto;cursor:pointer;opacity:0;transition:opacity .3s;
+}
+.clabel[data-on="1"]{opacity:1}
+.clabel b{display:block;font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink);white-space:nowrap}
+.clabel span{display:block;font-family:var(--mono);font-size:.58rem;color:var(--dim);margin-top:2px}
+.clabel:hover b{color:var(--accent)}
+
+.status{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:7;
+  font-family:var(--mono);font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--dim);display:flex;gap:18px;align-items:center}
+.status b{color:var(--ink-2);font-weight:400}
+.status .live{display:flex;align-items:center;gap:6px}
+.status .dot{width:5px;height:5px;border-radius:50%;background:var(--dim)}
+.status .dot.on{background:var(--routine);box-shadow:0 0 7px var(--routine)}
+
+.proto{position:fixed;top:24px;right:24px;z-index:7;font-family:var(--mono);
+  font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:var(--rubric);
+  border:1px solid var(--rubric);padding:5px 9px;border-radius:3px;opacity:.75}
+
+@media (max-width:820px){
+  .wg{display:none} .legend{display:none}
+  .mast h1{font-size:.95rem}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="ground"></div>
+<canvas id="sky"></canvas>
+
+<div class="hud">
+  <div class="mast">
+    <h1>SERENIUM <em>CORE</em></h1>
+    <p id="mastsub">World Network · 2,912 nodes</p>
+  </div>
+
+  <div class="ring" id="ring"></div>
+
+  <div class="wg" style="left:24px;top:104px">
+    <h3>Live Agents</h3>
+    <div id="wgLive"></div>
+  </div>
+
+  <div class="wg" style="right:24px;top:104px">
+    <h3>Burn &amp; Projection</h3>
+    <div class="big">$18.40</div>
+    <span class="u">today · $412 projected / mo</span>
+  </div>
+
+  <div class="ctl">
+    <button id="bAgent">◍ Simulate agent running</button>
+    <button id="bEnter">↳ Enter the graph</button>
+    <button id="bFind">⌕ Search &nbsp;Ctrl+F</button>
+  </div>
+
+  <div class="legend" id="legend"></div>
+
+  <div class="status">
+    <span class="live"><i class="dot" id="sdot"></i><span id="sstate">Idle</span></span>
+    <span>Sessions <b>27</b></span>
+    <span>Artifacts <b>22</b></span>
+    <span>Docs <b>2,787</b></span>
+  </div>
+
+  <div class="proto">Prototype · real data</div>
+
+  <div class="search" id="search">
+    <input id="q" type="text" placeholder="ค้นหา session, artifact, skill…" autocomplete="off" spellcheck="false">
+    <div class="res" id="res"></div>
+    <div class="hint">Enter เลือก · Esc ปิด</div>
+  </div>
+
+  <div class="card" id="card"></div>
+</div>
+
+<script>
+(() => {
+"use strict";
+const $ = s => document.querySelector(s);
+const RM = matchMedia("(prefers-reduced-motion: reduce)");
+
+/* ─── COUNTS ARE REAL, WORDS ARE NOT ───────────────────────────────────
+   Every title below is invented. The counts and the length distribution are
+   measured (2026-08-24) because those are what the layout has to survive —
+   the ring has to hold 27 sessions and 22 artifacts without colliding, and a
+   Thai title has to render in the same row as an English one.
+
+   This file is public. It previously carried the titles pulled straight off
+   disk, which put an unpublished research direction and some unlaunched
+   product plans in a public repo. If you ever regenerate this from live data,
+   redact it again before committing. */
+const SESSIONS = ["Agent OS bootstrap","CSV joining and cleaning workflow",
+"Browser comparison notes","Phase 1 planning",
+"Graph ranking literature review","CTF write-up: document metadata",
+"Project board setup","Repo review pass","Data science skill search",
+"ทำความเข้าใจการใช้ /graphify ในการเชื่อมข้อมูล","Subscription tracker review",
+"Building the Agent OS","Budget planner launch plan","Vault hygiene sweep",
+"Knowledge base import","Dist rebuild","Thesis checkpoint",
+"Skill authoring session","Artifact design pass","Weekly portfolio review",
+"Decision log cleanup","Graph loader sketch","Console review",
+"Cost model exploration","Graph clustering spike","Widget layout study","Spec review"];
+
+const ARTIFACTS = ["Knowledge Graph Trace","Flashcard Drill","Agent OS Command Centre",
+"Trace Scope Notes","Subscription Tracker","Sample Spend Console","Graph Defense Demo",
+"Launch Plan Draft","Intervention Console","Budget Planner",
+"Path Ranking Notes","Building the Agent OS","Serenium Core Prototype",
+"Rubric Deck","Portfolio Snapshot","Usage Heatmap","Routine Board","Skill Atlas",
+"Vault Audit Report","Phase Plan","Burn Projection","Live Agent Board"];
+
+const SKILLS = ["brainstorming","grilling","artifact-design","impeccable","hyperframes",
+"ui-ux-pro-max","humanizer","writing-plans","skill-creator","data-analysis","graphify",
+"dataviz","design-taste-frontend","media-use","motion-doctrine","code-review","security-review",
+"executing-plans","find-skills","using-superpowers"];
+
+const RUBRICS  = ["product-gtm","research","web-app","vault"];
+const ROUTINES = ["standup","weekly-review","vault-audit","thesis-checkpoint"];
+const DECISIONS= ["Ship the decision, not the dashboard","Measure as a rate, not a count",
+                  "Scoring drops multiplicative chains","Plan before code",
+                  "Everything runs locally"];
+
+/* External Knowledge Libraries is four separate libraries on disk, so it is
+   four clusters — not one lump. Counts measured 2026-08-24. */
+const CLUSTERS = [
+  { id:"claude",   label:"Claude",                        n:125,  open:true  },
+  { id:"myproject",label:"MyProject",                     n:18,   open:true  },
+  { id:"ckg",      label:"Cybersecurity Knowledge Graph", n:26,   open:true  },
+  { id:"hermes",   label:"Hermes Knowledge Base",         n:84,   open:true  },
+  { id:"libA",     label:"Reference Library A",           n:388,  open:false },
+  { id:"handbook", label:"Cybersecurity Handbook",        n:535,  open:false },
+  { id:"aisec",    label:"AI Security Second Brain",      n:560,  open:false },
+  { id:"libB",     label:"Reference Library B",           n:1175, open:false },
+];
+/* Two of the four carry neutral names on purpose: their real folder names read
+   as personal names, and this repo is public. Counts are untouched — they are
+   what the layout has to cope with. */
+
+const TYPES = {
+  session:  { c:"#ff8a4c", n:27   }, artifact: { c:"#3fd6d0", n:22   },
+  skill:    { c:"#a487f5", n:63   }, rubric:   { c:"#ffc44d", n:4    },
+  routine:  { c:"#4ecb92", n:4    }, decision: { c:"#f0709b", n:5    },
+  document: { c:"#5a6a8c", n:2787 },
+};
+
+/* ─── build the node set ────────────────────────────────────────────── */
+let seed = 24082026;
+const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+
+const NODES = [];
+const push = (type, label, cluster) => NODES.push({ i:NODES.length, type, label, cluster });
+
+SESSIONS.forEach(t => push("session",  t, "claude"));
+ARTIFACTS.forEach(t => push("artifact", t, "claude"));
+SKILLS.forEach(t => push("skill",    t, "claude"));
+for (let i = SKILLS.length; i < 63; i++) push("skill", "skill-" + i, "claude");
+RUBRICS.forEach(t => push("rubric",   t, "claude"));
+ROUTINES.forEach(t => push("routine",  t, "claude"));
+DECISIONS.forEach(t => push("decision", t, "claude"));
+/* documents: labels exist only for the areas the user actually authors in */
+const docCluster = c => { for (let i = 0; i < c.n; i++) push("document", null, c.id); };
+CLUSTERS.filter(c => c.id !== "claude").forEach(docCluster);
+
+/* Deterministic position, per the spec's "id hash → fixed slot" rule.
+   Fibonacci gives an even shell; the hash decides WHICH slot each node takes,
+   so the 125 Claude nodes scatter across the whole sphere instead of landing
+   in one contiguous arc the way plain index order puts them. */
+const hash = s => { let h = 2166136261; for (let i = 0; i < s.length; i++)
+  { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; };
+
+NODES.forEach(n => { n.h = hash(n.type + ":" + (n.label || "doc-" + n.i) + ":" + n.cluster); });
+const slots = NODES.map((n, i) => i).sort((a, b) => NODES[a].h - NODES[b].h);
+
+/* Every library gets its own hue, and every document varies in tone within it.
+   2,787 documents in one flat grey was the whole reason the graph looked dead. */
+const LIB_HUE = {
+  myproject:"#ffb347", ckg:"#ff5c6e", hermes:"#3fd6d0", libA:"#7ee08a",
+  handbook:"#5b9cff",  aisec:"#b07cf5", libB:"#f070b8",
+};
+const vary = (hex, h) => {
+  const f = .58 + h * .72;                       /* per-node tone, deterministic */
+  const r = Math.min(255, Math.round(parseInt(hex.slice(1,3),16) * f));
+  const g = Math.min(255, Math.round(parseInt(hex.slice(3,5),16) * f));
+  const b = Math.min(255, Math.round(parseInt(hex.slice(5,7),16) * f));
+  return "rgb(" + r + "," + g + "," + b + ")";
+};
+
+const hash2 = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = (h * 33 ^ s.charCodeAt(i)) >>> 0;
+  return h / 4294967296; };
+
+const GOLD = Math.PI * (3 - Math.sqrt(5));
+slots.forEach((nodeIdx, k) => {
+  const n = NODES[nodeIdx];
+  const y = 1 - (k / (NODES.length - 1)) * 2, r = Math.sqrt(Math.max(0, 1 - y * y));
+  const th = GOLD * k;
+  /* Fibonacci gives an even DIRECTION; a per-node radius turns the shell into
+     a packed ball, so the mass reads as blobs pressed together rather than a
+     hollow perfect sphere. */
+  const h2 = hash2(n.type + "|" + (n.label || n.i) + "|" + n.cluster);
+  const rr = .30 + .70 * Math.pow(h2, .45);
+  n.x = Math.cos(th) * r * rr; n.y = y * rr; n.z = Math.sin(th) * r * rr;
+  n.bright = n.type !== "document";
+  n.col = n.bright ? TYPES[n.type].c : vary(LIB_HUE[n.cluster] || "#6a7aa0", n.h);
+  n.fire = n.h * 6.283;                          /* phase, so blobs pulse out of step */
+  /* mostly small with occasional large ones — "ก้อนแสงน้อยใหญ่" */
+  n.mass = (n.bright ? 1.5 : .62) + 2.6 * Math.pow(n.h, 3.4);
+});
+
+/* cluster centroids for the inside view */
+/* centroids sit on a ring around the origin so the graph stays centred when
+   the camera arrives; alternating tilt keeps eight of them from overlapping */
+CLUSTERS.forEach((k_, k) => {
+  const c = CLUSTERS[k];
+  const a = (k / CLUSTERS.length) * Math.PI * 2;
+  const r = .52 + (c.n > 300 ? .42 : 0);          /* big libraries sit further out */
+  c.cx = Math.cos(a) * r; c.cy = (k % 3 - 1) * .19; c.cz = Math.sin(a) * r;
+  c.rad = .13 + Math.min(.34, Math.sqrt(c.n) / 58);  /* room to breathe, not a solid ball */
+});
+
+/* ── edges ──────────────────────────────────────────────────────────────
+   Real vault has 9,052 wiki-links. Generating a representative set here
+   deterministically: mostly within-cluster (how a knowledge base actually
+   links), plus the Claude cross-links that make this a graph and not a
+   set of separate piles. */
+const EDGES = [];
+const byCluster = {};
+NODES.forEach(n => (byCluster[n.cluster] ||= []).push(n));
+
+for (const list of Object.values(byCluster)) {
+  for (let i = 0; i < list.length; i++) {
+    const deg = list[i].bright ? 2 : (rnd() < .55 ? 1 : 0);   /* ~half of docs are orphans */
+    for (let d = 0; d < deg; d++) {
+      const j = Math.floor(rnd() * list.length);
+      if (j !== i) EDGES.push([list[i], list[j]]);
+    }
+  }
+}
+/* the cross-links: session → artifact, session → skill, skill → rubric */
+const pick = t => { const p = NODES.filter(n => n.type === t); return p[Math.floor(rnd() * p.length)]; };
+for (let i = 0; i < 90; i++)  EDGES.push([pick("session"), pick("artifact")]);
+for (let i = 0; i < 140; i++) EDGES.push([pick("session"), pick("skill")]);
+for (let i = 0; i < 30; i++)  EDGES.push([pick("skill"),   pick("rubric")]);
+for (let i = 0; i < 60; i++)  EDGES.push([pick("session"), pick("document")]);
+
+/* ─── glow sprites ──────────────────────────────────────────────────────
+   Every node is a soft light blob, never a square pixel. Building a radial
+   gradient per node per frame would be ruinous at 2,912 nodes, so each colour
+   is rendered once into an offscreen canvas and then blitted. */
+const SPRITE = new Map();
+function glow(col) {
+  let s = SPRITE.get(col);
+  if (s) return s;
+  const S0 = 64, c = document.createElement("canvas");
+  c.width = c.height = S0;
+  const g2 = c.getContext("2d");
+  const m = col.startsWith("#")
+    ? [parseInt(col.slice(1,3),16), parseInt(col.slice(3,5),16), parseInt(col.slice(5,7),16)]
+    : col.match(/\d+/g).slice(0,3).map(Number);
+  const grd = g2.createRadialGradient(S0/2, S0/2, 0, S0/2, S0/2, S0/2);
+  grd.addColorStop(0,   `rgba(${Math.min(255,m[0]+70)},${Math.min(255,m[1]+70)},${Math.min(255,m[2]+70)},1)`);
+  grd.addColorStop(.18, `rgba(${m[0]},${m[1]},${m[2]},.85)`);
+  grd.addColorStop(.45, `rgba(${m[0]},${m[1]},${m[2]},.28)`);
+  grd.addColorStop(1,   `rgba(${m[0]},${m[1]},${m[2]},0)`);
+  g2.fillStyle = grd; g2.fillRect(0, 0, S0, S0);
+  SPRITE.set(col, c);
+  return c;
+}
+NODES.forEach(n => glow(n.col));        /* warm the cache once, not mid-frame */
+
+/* ─── canvas ────────────────────────────────────────────────────────── */
+const cv = $("#sky"), ctx = cv.getContext("2d");
+let W = 0, H = 0, DPR = 1;
+const resize = () => {
+  DPR = Math.min(Math.max(devicePixelRatio || 1, 1), 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+};
+addEventListener("resize", resize); resize();
+
+/* ─── the shell: a faceted polyhedron, not a point cloud ─────────────
+   Icosahedron subdivided twice → 320 facets. This is the "atom" container;
+   the nucleus lives inside it. */
+function icosphere(sub) {
+  const t = (1 + Math.sqrt(5)) / 2;
+  let V = [[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],
+           [t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(v => {
+    const l = Math.hypot(...v); return v.map(c => c / l); });
+  let F = [[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],
+           [10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],
+           [2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  for (let s = 0; s < sub; s++) {
+    const mid = new Map(), F2 = [];
+    const mp = (a, b) => {
+      const k = a < b ? a+","+b : b+","+a;
+      if (mid.has(k)) return mid.get(k);
+      const m = [0,1,2].map(i => (V[a][i] + V[b][i]) / 2);
+      const l = Math.hypot(...m);
+      V.push(m.map(c => c / l)); mid.set(k, V.length - 1); return V.length - 1;
+    };
+    for (const [a,b,c] of F) {
+      const ab = mp(a,b), bc = mp(b,c), ca = mp(c,a);
+      F2.push([a,ab,ca],[b,bc,ab],[c,ca,bc],[ab,bc,ca]);
+    }
+    F = F2;
+  }
+  const E = new Set();
+  for (const f of F) for (let i = 0; i < 3; i++) {
+    const a = f[i], b = f[(i+1)%3];
+    E.add(a < b ? a+","+b : b+","+a);
+  }
+  return { V, F, E: [...E].map(s => s.split(",").map(Number)) };
+}
+const SHELL = icosphere(2);
+
+/* ─── network vectors: particles orbiting between nucleus and shell ─── */
+const PARTS = [];
+for (let i = 0; i < 260; i++) {
+  const a = rnd() * 6.283, b = Math.acos(2 * rnd() - 1);
+  PARTS.push({
+    ax: Math.sin(b) * Math.cos(a), ay: Math.cos(b), az: Math.sin(b) * Math.sin(a),
+    t: rnd(), sp: .1 + rnd() * .26, r: .48 + rnd() * .46,
+    col: Object.values(TYPES)[Math.floor(rnd() * 6)].c,
+  });
+}
+
+/* ─── state ─────────────────────────────────────────────────────────── */
+const S = {
+  ry:0, rx:.18, view:"outside", t:0, agent:false,
+  pulse:0, extract:null, extractT:0, hover:null,
+  gx:0, gy:0, gs:1,          // graph-view recentre + fit
+};
+
+const lerp = (a,b,k) => a + (b - a) * k;
+const ease = k => 1 - Math.pow(1 - k, 3);
+
+function project(x, y, z, R, dist) {
+  const cy = Math.cos(S.ry), sy = Math.sin(S.ry);
+  const x1 = x * cy - z * sy, z1 = x * sy + z * cy;
+  const cx2 = Math.cos(S.rx), sx2 = Math.sin(S.rx);
+  const y2 = y * cx2 - z1 * sx2, z2 = y * sx2 + z1 * cx2;
+  const k = dist / (dist + z2);
+  return [W/2 + S.gx + x1 * R * k * S.gs, H/2 + S.gy + y2 * R * k * S.gs, k, z2];
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(48, now - last); last = now;
+
+  const target = S.view === "inside" ? 1 : 0;
+  S.t = lerp(S.t, target, 1 - Math.pow(.001, dt / 1000));
+  if (Math.abs(S.t - target) < .002) S.t = target;
+
+  const spin = S.agent ? .00024 : .00011;
+  if (!RM.matches) S.ry += dt * spin;
+  S.pulse = S.agent ? (S.pulse + dt * .003) % 6.283 : lerp(S.pulse, 0, .05);
+
+  ctx.clearRect(0, 0, W, H);
+  const M = Math.min(W, H);
+  const R = M * (.30 - S.t * .085);   // wider cluster layout needs a wider frame
+  const dist = 3.2 - S.t * 1.5;
+  const e = ease(S.t);
+
+  const pulseK = 1 + Math.sin(S.pulse) * (S.agent ? .05 : .012);
+
+  /* ── nucleus glow: three stacked gradients so the core is white-hot and the
+        falloff still carries colour. One gradient alone reads as a smudge. ── */
+  if (e < .98) {
+    const nr = R * (.26 + .03 * Math.sin(S.pulse * .7)) * pulseK;
+    const amp = (1 - e) * (S.agent ? .42 : .32);
+    const layer = (rad, stops) => {
+      const g = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, rad);
+      for (const [at, css] of stops) g.addColorStop(at, css);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    };
+    ctx.globalCompositeOperation = "lighter";
+    layer(nr * 3.2, [[0, "rgba(150,60,190," + amp*.16 + ")"], [1, "rgba(120,40,170,0)"]]);
+    layer(nr * 1.9, [[0, "rgba(255,106,43," + amp*.34 + ")"], [1, "rgba(255,106,43,0)"]]);
+    layer(nr * .95, [[0, "rgba(255,214,170," + amp*.46 + ")"],
+                     [.45, "rgba(255,150,80," + amp*.26 + ")"], [1, "rgba(255,120,50,0)"]]);
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  /* ── the faceted shell ── */
+  if (e < .95) {
+    const sv = SHELL.V.map(v => project(v[0], v[1], v[2], R, dist));
+    ctx.lineWidth = 1;
+    /* two passes: back edges dim, front edges brighter — reads as a solid */
+    for (const pass of [0, 1]) {
+      ctx.beginPath();
+      let drew = false;
+      for (const [a, b] of SHELL.E) {
+        const A = sv[a], B = sv[b];
+        const front = (A[3] + B[3]) / 2 < 0;
+        if (front !== !!pass) continue;
+        ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); drew = true;
+      }
+      if (!drew) continue;
+      ctx.globalAlpha = (1 - e) * (pass ? .20 : .07);
+      ctx.strokeStyle = pass ? "#8d7a6b" : "#5b5060";
+      ctx.stroke();
+    }
+    /* vertex studs give the polyhedron its facet corners */
+    ctx.globalAlpha = (1 - e) * .55;
+    for (const p of sv) if (p[3] < 0) ctx.drawImage(glow("#c9b8a8"), p[0] - 3, p[1] - 3, 6, 6);
+  }
+
+  /* ── network vectors: electrons between nucleus and shell ── */
+  if (e < .9) {
+    ctx.globalCompositeOperation = "lighter";
+    const sp = S.agent ? 2.6 : 1;
+    for (const p of PARTS) {
+      p.t = (p.t + dt * .00005 * p.sp * sp) % 1;
+      const a = p.t * 6.283;
+      const ux = -p.az, uz = p.ax, ul = Math.hypot(ux, uz) || 1;
+      const c = Math.cos(a), s = Math.sin(a);
+      const x = p.ax * c + (ux/ul) * s, y = p.ay * c, z = p.az * c + (uz/ul) * s;
+      const [sx, sy2, k, z2] = project(x * p.r, y * p.r, z * p.r, R, dist);
+      ctx.globalAlpha = (1 - e) * .5 * Math.max(0, Math.min(1, (k - .55) * 2));
+      const sz = k * (S.agent ? 7 : 5.5);
+      ctx.drawImage(glow(p.col), sx - sz/2, sy2 - sz/2, sz, sz);
+    }
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  /* ── node positions: nucleus (compressed) → cluster layout ── */
+  const NUC = .265;   // dense enough to read as one mass, loose enough to keep hue
+  for (const n of NODES) {
+    const c = CLUSTERS.find(q => q.id === n.cluster);
+    const spread = c.open ? c.rad : c.rad * .34;
+    const ix = c.cx + n.x * spread, iy = c.cy + n.y * spread * .82, iz = c.cz + n.z * spread;
+    n._px = lerp(n.x * NUC * pulseK, ix, e);
+    n._py = lerp(n.y * NUC * pulseK, iy, e);
+    n._pz = lerp(n.z * NUC * pulseK, iz, e);
+    const p = project(n._px, n._py, n._pz, R, dist);
+    n._x = p[0]; n._y = p[1]; n._k = p[2];
+  }
+
+  if (e > .35) {
+    let bx0=1e9, bx1=-1e9, by0=1e9, by1=-1e9;
+    for (const n of NODES) {
+      if (n._x < bx0) bx0 = n._x; if (n._x > bx1) bx1 = n._x;
+      if (n._y < by0) by0 = n._y; if (n._y > by1) by1 = n._y;
+    }
+    const bw = Math.max(40, bx1-bx0), bh = Math.max(40, by1-by0);
+    const want = Math.min(W * .82 / bw, H * .82 / bh);
+    const rate = 1 - Math.pow(.004, dt / 1000);
+    S.gs += (Math.max(.4, Math.min(2.4, S.gs * want)) - S.gs) * rate * .5;
+    S.gx += (W/2 - (bx0+bx1)/2) * rate * .5;
+    S.gy += (H/2 - (by0+by1)/2) * rate * .5;
+  } else { S.gx = lerp(S.gx,0,.08); S.gy = lerp(S.gy,0,.08); S.gs = lerp(S.gs,1,.08); }
+
+  /* Perspective makes near clusters dominate the bounding box, so a static
+     layout drifts off-frame as it rotates. Recentre and refit every frame. */
+  if (e > .35) {
+    let bx0=1e9, bx1=-1e9, by0=1e9, by1=-1e9;
+    for (const n of NODES) {
+      if (n._x < bx0) bx0 = n._x; if (n._x > bx1) bx1 = n._x;
+      if (n._y < by0) by0 = n._y; if (n._y > by1) by1 = n._y;
+    }
+    const bw = Math.max(40, bx1-bx0), bh = Math.max(40, by1-by0);
+    const want = Math.min(W * .82 / bw, H * .82 / bh);
+    const rate = (1 - Math.pow(.004, dt / 1000)) * .5;
+    S.gs += (Math.max(.4, Math.min(2.4, S.gs * want)) - S.gs) * rate;
+    S.gx += (W/2 - (bx0+bx1)/2) * rate;
+    S.gy += (H/2 - (by0+by1)/2) * rate;
+  } else { S.gx = lerp(S.gx,0,.08); S.gy = lerp(S.gy,0,.08); S.gs = lerp(S.gs,1,.08); }
+
+  /* ── edges: curved dendrites, coloured by the library they belong to.
+        Straight grey lines read as a scatter plot; a bow in the line and the
+        source node's own hue is what makes it read as a cell network.
+        Bucketed by (colour × near/far) so ~3.5k curves cost ~16 strokes. ── */
+  if (e > .06) {
+    const buckets = new Map();
+    for (const ed of EDGES) {
+      const [s, t] = ed;
+      const cs = CLUSTERS.find(q => q.id === s.cluster);
+      const ct = CLUSTERS.find(q => q.id === t.cluster);
+      if (!cs.open && !ct.open && e > .5) continue;      /* collapsed = no spaghetti */
+      const far = (s._k + t._k) / 2 < 1.08;
+      const key = (LIB_HUE[s.cluster] || "#8b7ad0") + "|" + (far ? 0 : 1);
+      let arr = buckets.get(key);
+      if (!arr) buckets.set(key, arr = []);
+      arr.push(ed);
+    }
+    ctx.lineWidth = 1;
+    for (const [key, list] of buckets) {
+      const [col, far] = key.split("|");
+      ctx.beginPath();
+      for (const ed of list) {
+        const [s, t] = ed;
+        /* deterministic bow perpendicular to the edge — organic, never jittery */
+        if (ed[2] === undefined) ed[2] = ((s.h + t.h) % 1 - .5) * .5;
+        const mx = (s._x + t._x) / 2, my = (s._y + t._y) / 2;
+        const dx = t._x - s._x, dy = t._y - s._y;
+        ctx.moveTo(s._x, s._y);
+        ctx.quadraticCurveTo(mx - dy * ed[2], my + dx * ed[2], t._x, t._y);
+      }
+      ctx.globalAlpha = (far === "0" ? .10 : .22) * e;
+      ctx.strokeStyle = col;
+      ctx.stroke();
+    }
+  }
+
+  /* ── nodes: soft light blobs, always additive so overlapping ones
+        ACCUMULATE into brighter light instead of covering each other.
+        That accumulation is the whole reason a packed mass reads as glowing. ── */
+  ctx.globalCompositeOperation = "lighter";
+  const t = now * .0012;
+  for (const n of NODES) {
+    const c = CLUSTERS.find(q => q.id === n.cluster);
+    const k = n._k;
+    let a = Math.max(.05, Math.min(1, (k - .62) * 2.3));
+    if (!n.bright) a *= (.62 + .3 * e);
+    if (!c.open) a *= (1 - e * .45);
+    /* blobs pulse out of step — a slow shimmer, never a uniform blink */
+    const fire = .84 + .26 * Math.sin(t + n.fire);
+    ctx.globalAlpha = Math.min(1, a * (.34 + .3 * e) * fire);
+    const sz = n.mass * k * (4.4 + e * 3.6);
+    ctx.drawImage(glow(n.col), n._x - sz/2, n._y - sz/2, sz, sz);
+  }
+  ctx.globalCompositeOperation = "source-over";
+
+  /* ── extracted node flying out of the sphere ── */
+  if (S.extract) {
+    S.extractT = Math.min(1, S.extractT + dt / 620);
+    const n = S.extract, p = ease(S.extractT);
+    const bx = n._x, by = n._y;   // node now lives in the nucleus, not on a unit sphere
+    const tx = W/2, ty = H/2 - M * .18;
+    const cx3 = lerp(bx, tx, p), cy3 = lerp(by, ty, p);
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(cx3, cy3, 3 + p * 4, 0, 6.283);
+    ctx.fillStyle = n.col; ctx.fill();
+    ctx.globalAlpha = .5 * (1 - p);
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(cx3, cy3);
+    ctx.strokeStyle = n.col; ctx.lineWidth = 1; ctx.stroke();
+    const card = $("#card");
+    card.style.left = cx3 + "px"; card.style.top = (cy3 + 46) + "px";
+  }
+
+  ctx.globalAlpha = 1;
+  positionRing(e);
+  positionClusterLabels(e, R, dist);
+  requestAnimationFrame(frame);
+}
+
+/* ─── ring (DOM) ────────────────────────────────────────────────────── */
+const RING = [];
+SESSIONS.slice(0, 14).forEach(t => RING.push({ kind:"s", label:t }));
+ARTIFACTS.slice(0, 12).forEach(t => RING.push({ kind:"a", label:t }));
+RING.sort(() => rnd() - .5);
+
+const ringEl = $("#ring");
+ringEl.innerHTML = RING.map((r, i) =>
+  `<button class="node ${r.kind}" data-i="${i}"><span class="lbl">
+     <b>${r.kind === "s" ? "SESSION" : "ARTIFACT"}</b>${r.label}</span></button>`).join("");
+const ringNodes = [...ringEl.children];
+
+function positionRing(e) {
+  const M = Math.min(W, H);
+  const rx = Math.min(W * .40, M * .46), ry = Math.min(H * .40, M * .46);
+  const fade = 1 - e;
+  ringEl.style.opacity = fade;
+  ringEl.style.pointerEvents = fade < .3 ? "none" : "auto";
+  ringNodes.forEach((el, i) => {
+    const a = (i / ringNodes.length) * Math.PI * 2 - Math.PI / 2 + S.ry * .12;
+    el.style.left = (W/2 + Math.cos(a) * rx * (1 + e * .5)) + "px";
+    el.style.top  = (H/2 + Math.sin(a) * ry * (1 + e * .5)) + "px";
+  });
+}
+
+/* ─── cluster labels ────────────────────────────────────────────────── */
+const clabels = CLUSTERS.map(c => {
+  const d = document.createElement("div");
+  d.className = "clabel";
+  d.innerHTML = `<b>${c.label}</b><span>${c.n.toLocaleString()} · ${c.open ? "open" : "collapsed"}</span>`;
+  d.onclick = () => {
+    c.open = !c.open;
+    d.querySelector("span").textContent = c.n.toLocaleString() + " · " + (c.open ? "open" : "collapsed");
+  };
+  document.querySelector(".hud").appendChild(d);
+  return d;
+});
+function positionClusterLabels(e, R, dist) {
+  const on = e > .55;
+  CLUSTERS.forEach((c, i) => {
+    const el = clabels[i];
+    el.dataset.on = on ? "1" : "0";
+    if (!on) return;
+    const [sx, sy] = project(c.cx, c.cy, c.cz, R, dist);
+    el.style.left = sx + "px"; el.style.top = (sy - 42) + "px";
+  });
+}
+
+/* ─── legend ────────────────────────────────────────────────────────── */
+$("#legend").innerHTML = CLUSTERS.map(c =>
+  `<div><i style="background:${LIB_HUE[c.id] || "#ff8a4c"}"></i>${c.label.length > 22 ? c.label.slice(0,21) + "…" : c.label}<b>${c.n.toLocaleString()}</b></div>`).join("");
+
+/* ─── live agents widget ────────────────────────────────────────────── */
+function renderLive() {
+  const rows = S.agent
+    ? [["myproject-91","running","on"],["revera-ab","waiting · tool","wait"],["hermes-04","idle",""]]
+    : [["myproject-91","idle",""],["revera-ab","idle",""],["hermes-04","idle",""]];
+  $("#wgLive").innerHTML = rows.map(([n, s, cls]) =>
+    `<div class="row"><span>${n}</span><b class="${cls}">${s}</b></div>`).join("");
+}
+renderLive();
+
+/* ─── search ────────────────────────────────────────────────────────── */
+const SEARCHABLE = NODES.filter(n => n.label);
+let selIdx = 0, results = [];
+
+function runSearch() {
+  const q = $("#q").value.trim().toLowerCase();
+  results = q ? SEARCHABLE.filter(n => n.label.toLowerCase().includes(q)).slice(0, 8) : [];
+  selIdx = 0;
+  $("#res").innerHTML = results.map((n, i) =>
+    `<button data-i="${i}" class="${i === 0 ? "sel" : ""}">
+       <i style="background:${n.col}"></i><span>${n.label}</span><em>${n.type}</em></button>`).join("");
+  ringNodes.forEach(el => el.classList.remove("hit"));
+}
+function openSearch(on) {
+  $("#search").dataset.open = on ? "1" : "0";
+  $("#bFind").classList.toggle("on", on);
+  if (on) { $("#q").focus(); $("#q").select(); }
+  else { $("#q").value = ""; runSearch(); }
+}
+function extract(n) {
+  S.extract = n; S.extractT = 0;
+  const card = $("#card");
+  card.innerHTML = `<em>${n.type}</em><b>${n.label}</b><span>${n.cluster} cluster</span>`;
+  card.dataset.on = "1";
+  openSearch(false);
+  setTimeout(() => { card.dataset.on = "0"; S.extract = null; }, 4200);
+}
+$("#q").addEventListener("input", runSearch);
+$("#res").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (b) extract(results[+b.dataset.i]);
+});
+addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") { e.preventDefault(); openSearch(true); return; }
+  if ($("#search").dataset.open !== "1") return;
+  if (e.key === "Escape") openSearch(false);
+  if (e.key === "Enter" && results[selIdx]) { e.preventDefault(); extract(results[selIdx]); }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    selIdx = (selIdx + (e.key === "ArrowDown" ? 1 : results.length - 1)) % Math.max(1, results.length);
+    [...$("#res").children].forEach((c, i) => c.classList.toggle("sel", i === selIdx));
+  }
+});
+
+/* ─── controls ──────────────────────────────────────────────────────── */
+$("#bAgent").onclick = e => {
+  S.agent = !S.agent;
+  e.currentTarget.classList.toggle("on", S.agent);
+  $("#sdot").classList.toggle("on", S.agent);
+  $("#sstate").textContent = S.agent ? "1 agent running" : "Idle";
+  renderLive();
+};
+const setView = v => {
+  S.view = v;
+  $("#bEnter").textContent = v === "inside" ? "↰ Back to World Network" : "↳ Enter the graph";
+  $("#mastsub").textContent = v === "inside"
+    ? "Knowledge Graph · 8 clusters · click a label to expand"
+    : "World Network · 2,912 nodes";
+};
+$("#bEnter").onclick = () => setView(S.view === "inside" ? "outside" : "inside");
+$("#bFind").onclick = () => openSearch($("#search").dataset.open !== "1");
+cv.addEventListener("click", ev => {
+  const d = Math.hypot(ev.clientX - W/2, ev.clientY - H/2);
+  if (S.view === "outside" && d < Math.min(W, H) * .32) setView("inside");
+});
+ringEl.addEventListener("click", ev => {
+  const b = ev.target.closest(".node"); if (!b) return;
+  const r = RING[+b.dataset.i];
+  const n = SEARCHABLE.find(x => x.label === r.label);
+  setView("inside");
+  if (n) setTimeout(() => extract(n), 700);
+});
+
+requestAnimationFrame(frame);
+})();
+</script>

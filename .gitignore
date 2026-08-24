@@ -1,0 +1,11 @@
+node_modules/
+dist/
+out/
+build/
+.vite/
+*.log
+.DS_Store
+Thumbs.db
+.env
+.env.*
+# ข้อมูลอยู่ที่ ~/.claude/serenium/ ไม่ใช่ใน repo นี้
