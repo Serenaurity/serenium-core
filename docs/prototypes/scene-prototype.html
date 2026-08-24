@@ -576,22 +576,10 @@ function frame(now) {
     n._x = p[0]; n._y = p[1]; n._k = p[2];
   }
 
-  if (e > .35) {
-    let bx0=1e9, bx1=-1e9, by0=1e9, by1=-1e9;
-    for (const n of NODES) {
-      if (n._x < bx0) bx0 = n._x; if (n._x > bx1) bx1 = n._x;
-      if (n._y < by0) by0 = n._y; if (n._y > by1) by1 = n._y;
-    }
-    const bw = Math.max(40, bx1-bx0), bh = Math.max(40, by1-by0);
-    const want = Math.min(W * .82 / bw, H * .82 / bh);
-    const rate = 1 - Math.pow(.004, dt / 1000);
-    S.gs += (Math.max(.4, Math.min(2.4, S.gs * want)) - S.gs) * rate * .5;
-    S.gx += (W/2 - (bx0+bx1)/2) * rate * .5;
-    S.gy += (H/2 - (by0+by1)/2) * rate * .5;
-  } else { S.gx = lerp(S.gx,0,.08); S.gy = lerp(S.gy,0,.08); S.gs = lerp(S.gs,1,.08); }
-
   /* Perspective makes near clusters dominate the bounding box, so a static
-     layout drifts off-frame as it rotates. Recentre and refit every frame. */
+     layout drifts off-frame as it rotates. Recentre and refit every frame.
+     This block used to appear twice in a row, which walked the camera toward
+     its target twice per frame — the fit was jumpier than the easing implied. */
   if (e > .35) {
     let bx0=1e9, bx1=-1e9, by0=1e9, by1=-1e9;
     for (const n of NODES) {
