@@ -126,12 +126,13 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 
 /* extracted card — what search pulls out of the sphere */
 .card{
-  position:fixed;z-index:11;transform:translate(-50%,-50%);
+  position:fixed;z-index:11;transform:translate(-50%,-50%) scale(.9);
   background:var(--panel);border:1px solid var(--accent);border-radius:6px;
   padding:11px 14px;min-width:190px;max-width:290px;opacity:0;
-  transition:opacity .3s;pointer-events:none;
+  transition:opacity .22s ease, transform .28s cubic-bezier(.2,.9,.28,1.12);
+  pointer-events:none;
 }
-.card[data-on="1"]{opacity:1}
+.card[data-on="1"]{opacity:1;transform:translate(-50%,-50%) scale(1)}
 .card em{font-style:normal;font-family:var(--mono);font-size:.56rem;letter-spacing:.13em;
   text-transform:uppercase;color:var(--accent);display:block;margin-bottom:5px}
 .card b{font-weight:500;font-size:.85rem;display:block;line-height:1.35}
@@ -467,12 +468,24 @@ for (let i = 0; i < 260; i++) {
 /* ─── state ─────────────────────────────────────────────────────────── */
 const S = {
   ry:0, rx:.18, view:"outside", t:0, agent:false,
-  pulse:0, extract:null, extractT:0, hover:null,
+  pulse:0, hover:null,
+  pull:null, focusK:0,       // node in flight + how far the rest has dimmed
   gx:0, gy:0, gs:1,          // graph-view recentre + fit
 };
 
+const PULL_OUT = 640, PULL_HOLD = 2800, PULL_BACK = 460;
+
 const lerp = (a,b,k) => a + (b - a) * k;
 const ease = k => 1 - Math.pow(1 - k, 3);
+
+/* A node pulled out of a packed mass should resist before it moves. Dipping
+   back toward the core for the first fifth of the flight, then overshooting
+   slightly past the target, is the difference between plucked and teleported. */
+const pullEase = k => {
+  if (k < .2) return -.12 * Math.sin(k / .2 * Math.PI);
+  const p = (k - .2) / .8 - 1;
+  return 1 + 2.1 * p * p * p + 1.1 * p * p;
+};
 
 function project(x, y, z, R, dist) {
   const cy = Math.cos(S.ry), sy = Math.sin(S.ry);
@@ -594,6 +607,12 @@ function frame(now) {
     S.gy += (H/2 - (by0+by1)/2) * rate;
   } else { S.gx = lerp(S.gx,0,.08); S.gy = lerp(S.gy,0,.08); S.gs = lerp(S.gs,1,.08); }
 
+  /* While one node is out, everything else steps back. Without this the
+     selection competes with 2,911 other lights and stops reading as chosen.
+     Eased rather than switched, so nothing flickers on a fast second pick. */
+  S.focusK += ((S.pull ? 1 : 0) - S.focusK) * (1 - Math.pow(.01, dt / 1000));
+  const dim = 1 - S.focusK * .45;
+
   /* ── edges: curved dendrites, coloured by the library they belong to.
         Straight grey lines read as a scatter plot; a bow in the line and the
         source node's own hue is what makes it read as a cell network.
@@ -624,7 +643,7 @@ function frame(now) {
         ctx.moveTo(s._x, s._y);
         ctx.quadraticCurveTo(mx - dy * ed[2], my + dx * ed[2], t._x, t._y);
       }
-      ctx.globalAlpha = (far === "0" ? .10 : .22) * e;
+      ctx.globalAlpha = (far === "0" ? .10 : .22) * e * dim;
       ctx.strokeStyle = col;
       ctx.stroke();
     }
@@ -636,6 +655,7 @@ function frame(now) {
   ctx.globalCompositeOperation = "lighter";
   const t = now * .0012;
   for (const n of NODES) {
+    if (S.pull && n === S.pull.n) continue;   // it left the mass; drawn below
     const c = CLUSTERS.find(q => q.id === n.cluster);
     const k = n._k;
     let a = Math.max(.05, Math.min(1, (k - .62) * 2.3));
@@ -643,27 +663,79 @@ function frame(now) {
     if (!c.open) a *= (1 - e * .45);
     /* blobs pulse out of step — a slow shimmer, never a uniform blink */
     const fire = .84 + .26 * Math.sin(t + n.fire);
-    ctx.globalAlpha = Math.min(1, a * (.34 + .3 * e) * fire);
+    ctx.globalAlpha = Math.min(1, a * (.34 + .3 * e) * fire * dim);
     const sz = n.mass * k * (4.4 + e * 3.6);
     ctx.drawImage(glow(n.col), n._x - sz/2, n._y - sz/2, sz, sz);
   }
   ctx.globalCompositeOperation = "source-over";
 
-  /* ── extracted node flying out of the sphere ── */
-  if (S.extract) {
-    S.extractT = Math.min(1, S.extractT + dt / 620);
-    const n = S.extract, p = ease(S.extractT);
-    const bx = n._x, by = n._y;   // node now lives in the nucleus, not on a unit sphere
-    const tx = W/2, ty = H/2 - M * .18;
-    const cx3 = lerp(bx, tx, p), cy3 = lerp(by, ty, p);
-    ctx.globalAlpha = 1;
-    ctx.beginPath(); ctx.arc(cx3, cy3, 3 + p * 4, 0, 6.283);
-    ctx.fillStyle = n.col; ctx.fill();
-    ctx.globalAlpha = .5 * (1 - p);
-    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(cx3, cy3);
-    ctx.strokeStyle = n.col; ctx.lineWidth = 1; ctx.stroke();
-    const card = $("#card");
-    card.style.left = cx3 + "px"; card.style.top = (cy3 + 46) + "px";
+  /* ── the selected node, out of the mass ──
+        It stays the SAME light blob the whole way. The old version drew a
+        hard-edged dot in flat colour, so the instant you picked something it
+        stopped looking like the thing you picked — and the original kept
+        drawing in the sphere, which made it a copy rather than a selection.
+        Phases run off dt here, not setTimeout: picking a second node used to
+        leave the first one's timer alive to tear down the wrong card. */
+  if (S.pull) {
+    const P = S.pull;
+    P.t += dt;
+    const dur = P.phase === "out" ? PULL_OUT : P.phase === "hold" ? PULL_HOLD : PULL_BACK;
+    let k = Math.min(1, P.t / dur);
+
+    if (k >= 1) {
+      if (P.phase === "out") {          // arrival: ring pings, card appears
+        P.phase = "hold"; P.t = 0; k = 0; P.ping = 1;
+        $("#card").dataset.on = "1";
+      } else if (P.phase === "hold") {  // it goes home instead of vanishing
+        P.phase = "back"; P.t = 0; k = 0;
+        $("#card").dataset.on = "0";
+      } else S.pull = null;
+    }
+
+    if (S.pull) {
+      const n = P.n;
+      const hx = n._x, hy = n._y;                  // live home, still rotating
+      const tx = W / 2, ty = H / 2 - M * .18;
+      const p = P.phase === "out" ? pullEase(k) : P.phase === "hold" ? 1 : 1 - ease(k);
+      const cx3 = lerp(hx, tx, p), cy3 = lerp(hy, ty, p);
+
+      /* a short history of where it has been, so the eye can follow the move
+         instead of just discovering it somewhere new */
+      P.trail.push(cx3, cy3);
+      if (P.trail.length > 34) P.trail.splice(0, P.trail.length - 34);
+
+      ctx.globalCompositeOperation = "lighter";
+      const pts = P.trail.length / 2;
+      for (let i = 0; i < pts - 1; i++) {
+        const f = i / pts;
+        ctx.globalAlpha = f * f * .3;
+        const s2 = 5 + f * 9;
+        ctx.drawImage(glow(n.col), P.trail[i*2] - s2/2, P.trail[i*2+1] - s2/2, s2, s2);
+      }
+
+      P.ping = Math.max(0, P.ping - dt / 420);
+      const sz = Math.max(17, n.mass * 9) * (1 + p * 1.9 + P.ping * .7);
+      ctx.globalAlpha = Math.min(1, .55 + p * .45);
+      ctx.drawImage(glow(n.col), cx3 - sz/2, cy3 - sz/2, sz, sz);
+      ctx.globalCompositeOperation = "source-over";
+
+      /* the thread exists to say WHERE in the sphere this came from, so it
+         only earns its keep while the node is still visibly leaving */
+      ctx.globalAlpha = .32 * (P.phase === "back" ? 1 - k : Math.min(1, p * 1.4));
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(cx3, cy3);
+      ctx.strokeStyle = n.col; ctx.lineWidth = 1; ctx.stroke();
+
+      if (P.ping > 0) {
+        ctx.globalAlpha = P.ping * .45;
+        ctx.beginPath(); ctx.arc(cx3, cy3, 15 + (1 - P.ping) * 44, 0, 6.283);
+        ctx.strokeStyle = n.col; ctx.lineWidth = 1.5; ctx.stroke();
+      }
+
+      const card = $("#card");
+      card.style.left = cx3 + "px";
+      card.style.top  = (cy3 + 54) + "px";
+      ctx.globalAlpha = 1;
+    }
   }
 
   ctx.globalAlpha = 1;
@@ -745,7 +817,11 @@ function runSearch() {
   $("#res").innerHTML = results.map((n, i) =>
     `<button data-i="${i}" class="${i === 0 ? "sel" : ""}">
        <i style="background:${n.col}"></i><span>${n.label}</span><em>${n.type}</em></button>`).join("");
-  ringNodes.forEach(el => el.classList.remove("hit"));
+  /* Light up the matching chips in the ring. The class was being cleared here
+     and never set anywhere, so typing did nothing outside the panel — search
+     has to happen in the world, not only in a list floating over it. */
+  const hits = new Set(results.map(n => n.label));
+  ringNodes.forEach((el, i) => el.classList.toggle("hit", hits.has(RING[i].label)));
 }
 function openSearch(on) {
   $("#search").dataset.open = on ? "1" : "0";
@@ -754,12 +830,12 @@ function openSearch(on) {
   else { $("#q").value = ""; runSearch(); }
 }
 function extract(n) {
-  S.extract = n; S.extractT = 0;
+  S.pull = { n, phase:"out", t:0, trail:[], ping:0 };
   const card = $("#card");
   card.innerHTML = `<em>${n.type}</em><b>${n.label}</b><span>${n.cluster} cluster</span>`;
-  card.dataset.on = "1";
+  card.dataset.on = "0";              // the card meets the node on arrival
+  ringNodes.forEach((el, i) => el.classList.toggle("hit", RING[i].label === n.label));
   openSearch(false);
-  setTimeout(() => { card.dataset.on = "0"; S.extract = null; }, 4200);
 }
 $("#q").addEventListener("input", runSearch);
 $("#res").addEventListener("click", e => {
