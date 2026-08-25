@@ -512,6 +512,14 @@ function frame(now) {
   const M = Math.min(W, H);
   const R = M * (.30 - S.t * .085);   // wider cluster layout needs a wider frame
   const dist = 3.2 - S.t * 1.5;
+
+  /* While one node is out, everything else steps back. Eased rather than
+     switched, so a fast second pick does not flicker. The core dims harder
+     than the rest: it is the brightest thing on screen and it is what a
+     selection has to be seen against. */
+  S.focusK += ((S.pull ? 1 : 0) - S.focusK) * (1 - Math.pow(.01, dt / 1000));
+  const dim = 1 - S.focusK * .45;
+  const dimCore = 1 - S.focusK * .66;
   const e = ease(S.t);
 
   const pulseK = 1 + Math.sin(S.pulse) * (S.agent ? .05 : .012);
@@ -520,7 +528,7 @@ function frame(now) {
         falloff still carries colour. One gradient alone reads as a smudge. ── */
   if (e < .98) {
     const nr = R * (.26 + .03 * Math.sin(S.pulse * .7)) * pulseK;
-    const amp = (1 - e) * (S.agent ? .42 : .32);
+    const amp = (1 - e) * (S.agent ? .42 : .32) * dimCore;
     const layer = (rad, stops) => {
       const g = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, rad);
       for (const [at, css] of stops) g.addColorStop(at, css);
@@ -607,12 +615,6 @@ function frame(now) {
     S.gy += (H/2 - (by0+by1)/2) * rate;
   } else { S.gx = lerp(S.gx,0,.08); S.gy = lerp(S.gy,0,.08); S.gs = lerp(S.gs,1,.08); }
 
-  /* While one node is out, everything else steps back. Without this the
-     selection competes with 2,911 other lights and stops reading as chosen.
-     Eased rather than switched, so nothing flickers on a fast second pick. */
-  S.focusK += ((S.pull ? 1 : 0) - S.focusK) * (1 - Math.pow(.01, dt / 1000));
-  const dim = 1 - S.focusK * .45;
-
   /* ── edges: curved dendrites, coloured by the library they belong to.
         Straight grey lines read as a scatter plot; a bow in the line and the
         source node's own hue is what makes it read as a cell network.
@@ -695,45 +697,59 @@ function frame(now) {
     if (S.pull) {
       const n = P.n;
       const hx = n._x, hy = n._y;                  // live home, still rotating
-      const tx = W / 2, ty = H / 2 - M * .18;
       const p = P.phase === "out" ? pullEase(k) : P.phase === "hold" ? 1 : 1 - ease(k);
-      const cx3 = lerp(hx, tx, p), cy3 = lerp(hy, ty, p);
+      const cx3 = lerp(hx, P.tx, p), cy3 = lerp(hy, P.ty, p);
 
       /* a short history of where it has been, so the eye can follow the move
          instead of just discovering it somewhere new */
       P.trail.push(cx3, cy3);
       if (P.trail.length > 34) P.trail.splice(0, P.trail.length - 34);
 
+      P.ping = Math.max(0, P.ping - dt / 420);
+      const sz = Math.max(22, n.mass * 11) * (1 + p * 2.2 + P.ping * .9);
+
+      /* Carve a pocket of dark before drawing the blob. Additive light on top
+         of additive light is how the old version disappeared: whatever is
+         behind the selection adds to it instead of setting it off. */
+      if (p > .2) {
+        const rr = sz * 1.25;
+        const g = ctx.createRadialGradient(cx3, cy3, 0, cx3, cy3, rr);
+        g.addColorStop(0,  "rgba(4,6,12,.88)");
+        g.addColorStop(.6, "rgba(4,6,12,.52)");
+        g.addColorStop(1,  "rgba(4,6,12,0)");
+        ctx.globalAlpha = Math.min(1, (p - .2) / .45);
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(cx3, cy3, rr, 0, 6.283); ctx.fill();
+      }
+
+      /* the thread says WHERE in the sphere this came from — it only reads
+         once the node has actually cleared the mass */
+      ctx.globalAlpha = .38 * (P.phase === "back" ? 1 - k : Math.min(1, p * 1.4));
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(cx3, cy3);
+      ctx.strokeStyle = n.col; ctx.lineWidth = 1; ctx.stroke();
+
       ctx.globalCompositeOperation = "lighter";
       const pts = P.trail.length / 2;
       for (let i = 0; i < pts - 1; i++) {
         const f = i / pts;
-        ctx.globalAlpha = f * f * .3;
-        const s2 = 5 + f * 9;
+        ctx.globalAlpha = f * f * .42;
+        const s2 = 6 + f * 13;
         ctx.drawImage(glow(n.col), P.trail[i*2] - s2/2, P.trail[i*2+1] - s2/2, s2, s2);
       }
-
-      P.ping = Math.max(0, P.ping - dt / 420);
-      const sz = Math.max(17, n.mass * 9) * (1 + p * 1.9 + P.ping * .7);
-      ctx.globalAlpha = Math.min(1, .55 + p * .45);
+      ctx.globalAlpha = Math.min(1, .6 + p * .4);
       ctx.drawImage(glow(n.col), cx3 - sz/2, cy3 - sz/2, sz, sz);
       ctx.globalCompositeOperation = "source-over";
 
-      /* the thread exists to say WHERE in the sphere this came from, so it
-         only earns its keep while the node is still visibly leaving */
-      ctx.globalAlpha = .32 * (P.phase === "back" ? 1 - k : Math.min(1, p * 1.4));
-      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(cx3, cy3);
-      ctx.strokeStyle = n.col; ctx.lineWidth = 1; ctx.stroke();
-
       if (P.ping > 0) {
-        ctx.globalAlpha = P.ping * .45;
-        ctx.beginPath(); ctx.arc(cx3, cy3, 15 + (1 - P.ping) * 44, 0, 6.283);
-        ctx.strokeStyle = n.col; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.globalAlpha = P.ping * .5;
+        ctx.beginPath(); ctx.arc(cx3, cy3, 18 + (1 - P.ping) * 54, 0, 6.283);
+        ctx.strokeStyle = n.col; ctx.lineWidth = 2; ctx.stroke();
       }
 
+      /* card sits on whichever side has room, never off the bottom edge */
       const card = $("#card");
-      card.style.left = cx3 + "px";
-      card.style.top  = (cy3 + 54) + "px";
+      card.style.left = Math.max(126, Math.min(W - 126, cx3)) + "px";
+      card.style.top  = (cy3 < H - 160 ? cy3 + sz * .5 + 34 : cy3 - sz * .5 - 34) + "px";
       ctx.globalAlpha = 1;
     }
   }
@@ -830,7 +846,39 @@ function openSearch(on) {
   else { $("#q").value = ""; runSearch(); }
 }
 function extract(n) {
-  S.pull = { n, phase:"out", t:0, trail:[], ping:0 };
+  /* Where it lands, decided once at launch.
+     The old target was (W/2, H/2 - M*.18) — radius .18M from centre, while the
+     sphere itself is .30M. The node "flew out" to a point deep inside the
+     brightest part of the scene, which is why the move was invisible no matter
+     how the easing was tuned. It leaves along the direction it already sits,
+     parking in the clear band between the shell and the ring. Frozen here
+     rather than recomputed per frame, or the target would swing as the scene
+     rotates and the flight would curve on its own. */
+  const M = Math.min(W, H);
+  /* A node has no screen position until a frame has projected it, and the
+     opening demo can fire before that happens on a throttled tab. Without this
+     guard the target goes NaN, createRadialGradient throws, and the whole
+     render loop dies for good — one bad pick killing the entire scene. */
+  if (!Number.isFinite(n._x) || !Number.isFinite(n._y)) { n._x = W / 2; n._y = H / 2; }
+  let dx = n._x - W / 2, dy = n._y - H / 2;
+  if (!(Math.hypot(dx, dy) >= M * .04)) { dx = .58; dy = -.81; }  // centre, or NaN
+  const u = Math.hypot(dx, dy);
+  const rad = M * (S.t > .5 ? .54 : .385);
+  const pad = Math.min(104, M * .13);
+  let tx = Math.max(pad, Math.min(W - pad, W / 2 + dx / u * rad));
+  let ty = Math.max(pad, Math.min(H - pad, H / 2 + dy / u * rad));
+
+  /* Keeping it on screen can drag it back inside the shell on a short window,
+     which is the exact failure this whole change exists to remove. Clipped at
+     the edge beats invisible inside the core, so clearing the shell wins. */
+  const rr = Math.hypot(tx - W / 2, ty - H / 2), minR = M * .34;
+  if (rr < minR) {
+    const s = minR / (rr || 1);
+    tx = W / 2 + (tx - W / 2) * s;
+    ty = H / 2 + (ty - H / 2) * s;
+  }
+
+  S.pull = { n, phase:"out", t:0, trail:[], ping:0, tx, ty };
   const card = $("#card");
   card.innerHTML = `<em>${n.type}</em><b>${n.label}</b><span>${n.cluster} cluster</span>`;
   card.dataset.on = "0";              // the card meets the node on arrival
